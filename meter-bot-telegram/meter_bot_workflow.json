@@ -1,0 +1,400 @@
+{
+  "name": "Meter Bot — счётчик через Telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {
+          "download": true,
+          "imageSize": "large"
+        }
+      },
+      "id": "444c523e-9ec7-40fc-a7e8-534b0e1fbdbf",
+      "name": "Meter Bot",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.message.text }}",
+                    "rightValue": "/start",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "start"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.message.photo ? true : false }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "photo"
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "other"
+        }
+      },
+      "id": "ac6cd4e5-d626-43e3-9bb3-f83110d1d9d3",
+      "name": "Route Message",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -224,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "CREATE TABLE IF NOT EXISTS meter_users (id SERIAL PRIMARY KEY, telegram_id BIGINT UNIQUE, first_name TEXT, username TEXT, created_at TIMESTAMPTZ DEFAULT now()); CREATE TABLE IF NOT EXISTS meter_readings (id SERIAL PRIMARY KEY, reading NUMERIC, raw_text TEXT, meter_label TEXT, submitted_at TIMESTAMPTZ DEFAULT now()); ALTER TABLE meter_readings ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES meter_users(id);",
+        "options": {}
+      },
+      "id": "02e0f28e-e522-46d5-ad4a-a24fbdacbc51",
+      "name": "Ensure Schema (start)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        0,
+        -192
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO meter_users (telegram_id, first_name, username) VALUES ($1, $2, $3) ON CONFLICT (telegram_id) DO UPDATE SET first_name = EXCLUDED.first_name, username = EXCLUDED.username RETURNING id, first_name;",
+        "options": {
+          "queryReplacement": "={{ [$(\"Meter Bot\").item.json.message.from.id, $(\"Meter Bot\").item.json.message.from.first_name, $(\"Meter Bot\").item.json.message.from.username] }}"
+        }
+      },
+      "id": "5c73088a-0981-4288-999a-80e5e0bc6681",
+      "name": "Register User",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        224,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $(\"Meter Bot\").item.json.message.chat.id }}",
+        "text": "=Привет, {{ $(\"Register User\").item.json.first_name }}! Вы зарегистрированы (ID {{ $(\"Register User\").item.json.id }}). Пришлите фото счётчика — я прочитаю показания и сохраню их. Подпись к фото используется как метка счётчика (например «горячая вода»).",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "18e08bdf-56d8-44f5-b549-a66353779b9c",
+      "name": "Reply Welcome",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        448,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "CREATE TABLE IF NOT EXISTS meter_users (id SERIAL PRIMARY KEY, telegram_id BIGINT UNIQUE, first_name TEXT, username TEXT, created_at TIMESTAMPTZ DEFAULT now()); CREATE TABLE IF NOT EXISTS meter_readings (id SERIAL PRIMARY KEY, reading NUMERIC, raw_text TEXT, meter_label TEXT, submitted_at TIMESTAMPTZ DEFAULT now()); ALTER TABLE meter_readings ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES meter_users(id);",
+        "options": {}
+      },
+      "id": "ff04abd8-e0f9-4597-a295-31f9d806fa8a",
+      "name": "Ensure Schema (photo)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        0,
+        192
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "operation": "analyze",
+        "modelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "gpt-4o"
+        },
+        "text": "На фото счётчик. Найди окно с показаниями (цифровой ряд на табло) и прочитай его. Верни ТОЛЬКО числовое значение показаний — только цифры (и десятичный разделитель, если он есть), без единиц измерения, без пояснений и любого другого текста. Если показания прочитать невозможно, верни ровно слово: UNKNOWN.",
+        "inputType": "base64",
+        "options": {
+          "detail": "high",
+          "maxTokens": 50
+        }
+      },
+      "id": "7fee5e72-6518-4f52-b7a7-f0766527be20",
+      "name": "Read Meter Value",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO meter_users (telegram_id, first_name, username) VALUES ($1, $2, $3) ON CONFLICT (telegram_id) DO UPDATE SET first_name = EXCLUDED.first_name, username = EXCLUDED.username RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [$(\"Meter Bot\").item.json.message.from.id, $(\"Meter Bot\").item.json.message.from.first_name, $(\"Meter Bot\").item.json.message.from.username] }}"
+        }
+      },
+      "id": "b0beb675-d42d-4aed-aedb-29edeb6b88cc",
+      "name": "Upsert User",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO meter_readings (reading, raw_text, meter_label, user_id) VALUES (NULLIF(regexp_replace($1, '[^0-9.]', '', 'g'), '')::numeric, $1, NULLIF($2, ''), $3) RETURNING reading, raw_text;",
+        "options": {
+          "queryReplacement": "={{ [$(\"Read Meter Value\").item.json[0].content[0].text, $(\"Meter Bot\").item.json.message.caption, $(\"Upsert User\").item.json.id] }}"
+        }
+      },
+      "id": "d9c17246-ad4d-42ef-881f-40a011ceb3d2",
+      "name": "Save Reading to Postgres",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $(\"Meter Bot\").item.json.message.chat.id }}",
+        "text": "=Показание сохранено: {{ $(\"Read Meter Value\").item.json[0].content[0].text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "2049b934-90f2-4520-a6d0-cad843f3b32d",
+      "name": "Reply With Reading",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        896,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $(\"Meter Bot\").item.json.message.chat.id }}",
+        "text": "Пришлите, пожалуйста, фото счётчика — я прочитаю показания и сохраню их. Команда /start регистрирует вас в системе.",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "81acc4be-4ae6-4266-bda3-b94d1cec852c",
+      "name": "Reply Hint",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        384
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Meter Bot": {
+      "main": [
+        [
+          {
+            "node": "Route Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Message": {
+      "main": [
+        [
+          {
+            "node": "Ensure Schema (start)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ensure Schema (photo)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply Hint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ensure Schema (start)": {
+      "main": [
+        [
+          {
+            "node": "Register User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register User": {
+      "main": [
+        [
+          {
+            "node": "Reply Welcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ensure Schema (photo)": {
+      "main": [
+        [
+          {
+            "node": "Read Meter Value",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Meter Value": {
+      "main": [
+        [
+          {
+            "node": "Upsert User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert User": {
+      "main": [
+        [
+          {
+            "node": "Save Reading to Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Reading to Postgres": {
+      "main": [
+        [
+          {
+            "node": "Reply With Reading",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [
+    {
+      "id": "ca825137-3e63-4a1f-b79f-c315eb7a43b3",
+      "name": "Маршрутизация",
+      "nodeIds": [
+        "ac6cd4e5-d626-43e3-9bb3-f83110d1d9d3"
+      ],
+      "description": "Определяет тип сообщения: /start, фото счётчика или прочее."
+    },
+    {
+      "id": "ae4a090f-79aa-477c-99e5-73052f3ba4d9",
+      "name": "Регистрация пользователя",
+      "nodeIds": [
+        "02e0f28e-e522-46d5-ad4a-a24fbdacbc51",
+        "5c73088a-0981-4288-999a-80e5e0bc6681",
+        "18e08bdf-56d8-44f5-b549-a66353779b9c"
+      ],
+      "description": "По команде /start создаёт (или обновляет) запись пользователя в таблице meter_users и приветствует его."
+    },
+    {
+      "id": "4e8678f1-c407-4e77-af9e-4613dd5dbf38",
+      "name": "Распознавание и запись",
+      "nodeIds": [
+        "ff04abd8-e0f9-4597-a295-31f9d806fa8a",
+        "7fee5e72-6518-4f52-b7a7-f0766527be20",
+        "b0beb675-d42d-4aed-aedb-29edeb6b88cc",
+        "d9c17246-ad4d-42ef-881f-40a011ceb3d2",
+        "2049b934-90f2-4520-a6d0-cad843f3b32d"
+      ],
+      "description": "ИИ-зрение читает показания с фото, пользователь определяется по Telegram-аккаунту, показание сохраняется в PostgreSQL с привязкой к user_id и под"
+    },
+    {
+      "id": "9080b18a-6e99-4e6a-84b9-2f1f4bb7a5ec",
+      "name": "Прочие сообщения",
+      "nodeIds": [
+        "81acc4be-4ae6-4266-bda3-b94d1cec852c"
+      ],
+      "description": "На любое сообщение без фото и не /start бот отвечает подсказкой."
+    }
+  ]
+}
