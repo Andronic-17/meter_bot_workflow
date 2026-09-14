@@ -37,7 +37,7 @@ Workflow автоматически создает необходимые таб
 
 ## 📸 Демонстрация
 
-![Диалог с ботом](meter_bot_workflow/meter-bot-telegram/Screenshots/bot_chat.jpg)
+![Диалог с ботом](/meter-bot-telegram/Screenshots/bot_chat.jpg)
 
 ### Схема workflow в n8n
-![Схема n8n](meter_bot_workflow/meter-bot-telegram/Screenshots/n&n_canvas.jpg)
+![Схема n8n](/Screenshots/n&n_canvas.jpg)
